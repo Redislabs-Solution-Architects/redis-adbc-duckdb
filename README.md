@@ -117,7 +117,7 @@ The CLI harness checks 13 runtime scenarios, physical column types and every
 value in 10,003 rows against the matching 2.0 engine. CI runs it on Linux
 amd64/arm64 and builds/tests the extension offline on macOS arm64. It does not
 depend on the availability of a matching Python DuckDB wheel. The separate
-`test/test_native.py` tests can also be run when a Python DuckDB wheel matching
+`duckdb-extension/test/test_native.py` tests can also be run when a Python DuckDB wheel matching
 the extension's engine version is available.
 
 ## Driver source and releases
