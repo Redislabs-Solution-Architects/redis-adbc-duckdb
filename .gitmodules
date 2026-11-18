@@ -1,0 +1,12 @@
+[submodule "driver"]
+	path = driver
+	url = https://github.com/redis/redis-adbc-driver.git
+	shallow = true
+[submodule "duckdb"]
+	path = duckdb
+	url = https://github.com/duckdb/duckdb.git
+	shallow = true
+[submodule "extension-ci-tools"]
+	path = extension-ci-tools
+	url = https://github.com/duckdb/extension-ci-tools.git
+	shallow = true
