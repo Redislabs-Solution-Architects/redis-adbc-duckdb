@@ -134,3 +134,15 @@ macOS arm64 artifacts and uploads them after all platform jobs succeed. Each
 archive includes engine/platform, extension and driver revisions, and an adjacent
 SHA-256 checksum. Driver releases in the upstream repository are independent.
 The upstream Query.Farm `adbc_scanner` integration remains in the driver repo.
+
+Upstream extraction and migration review: [redis-adbc-driver #489](https://github.com/redis/redis-adbc-driver/pull/489).
+
+## Community registry migration
+
+The community registry currently pins the historical source repository, so its
+existing published version remains unchanged. [registry/description.yml](registry/description.yml)
+is a prepared replacement pointing to this repository at an exact source commit.
+It must be submitted to `duckdb/community-extensions` under
+`extensions/redis_adbc/description.yml` and accepted before registry builds follow
+the new repository. The migration session could not open that PR because the
+connected GitHub credentials cannot write to the existing registry fork.
