@@ -4,11 +4,19 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Nightly runs test the latest upstream driver main; pushes, pull requests
+  # and releases build the pinned driver/ submodule.
   schedule:
     - cron: '47 9 * * *'
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      driver_ref:
+        description: Upstream driver branch or tag to test instead of the pin (empty = pinned driver/)
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -42,6 +50,16 @@ jobs:
         run: |
           git submodule update --init --depth 1 driver duckdb extension-ci-tools
           git submodule update --init --recursive --depth 1 duckdb extension-ci-tools
+      - name: Select driver revision
+        env:
+          DRIVER_REF: ${{ github.event_name == 'schedule' && 'main' || inputs.driver_ref }}
+        run: |
+          if [ -n "$DRIVER_REF" ]; then
+            [[ "$DRIVER_REF" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || { echo "invalid driver_ref: $DRIVER_REF" >&2; exit 2; }
+            git -C driver fetch --depth 1 origin "$DRIVER_REF"
+            git -C driver checkout --detach FETCH_HEAD
+          fi
+          echo "Driver under test: $(git -C driver rev-parse HEAD) (${DRIVER_REF:-pinned $(git rev-parse HEAD:driver)})" | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: ./.github/actions/duckdb-build-cache
         with:
           variant: native-v2
@@ -105,7 +123,8 @@ jobs:
           name="redis_adbc-$RELEASE_VERSION-duckdb-v$DUCKDB_TEST_VERSION-$target"
           mkdir -p "dist/$name"
           git rev-parse HEAD > "dist/$name/EXTENSION_REVISION"
-          git rev-parse HEAD:driver > "dist/$name/DRIVER_REVISION"
+          # Record the driver actually built (nightly runs replace the pin).
+          git -C driver rev-parse HEAD > "dist/$name/DRIVER_REVISION"
           cp build/release/extension/redis_adbc/redis_adbc.duckdb_extension "dist/$name/"
           cp README.md LICENSE "dist/$name/"
           build/release/duckdb -csv -noheader -c 'PRAGMA platform' > "dist/$name/DUCKDB_PLATFORM"
