@@ -10,13 +10,18 @@ SELECT * FROM redis_adbc_scan(
 );
 ```
 
-The [registry submission](https://github.com/duckdb/community-extensions/pull/3157)
-has merged for DuckDB 2.0. `INSTALL redis_adbc FROM community` requires a
-successful registry build and publication for your exact engine/platform.
-Release CI also attaches versioned, checksummed unsigned binaries for the pinned
-DuckDB version; see [release installation](https://github.com/Redislabs-Solution-Architects/redis-adbc-duckdb/releases).
-For local development, build from source and load the resulting file with
-unsigned extensions enabled in your DuckDB client.
+Extension versions match the embedded driver release: `v0.0.31` embeds Redis
+ADBC driver `v0.0.31`. There are three ways to install it:
+
+- **Community registry.** `INSTALL redis_adbc FROM community; LOAD redis_adbc;`
+  installs the registry's DuckDB 2.0 build of the commit its entry names, where
+  a build exists for your exact engine and platform. Each release needs a
+  registry update; see [Community registry](#community-registry).
+- **[GitHub releases](https://github.com/Redislabs-Solution-Architects/redis-adbc-duckdb/releases).**
+  Versioned, checksummed unsigned binaries for DuckDB 2.0.0 on Linux amd64/arm64
+  and macOS arm64. Load them with unsigned extensions enabled
+  (`duckdb -unsigned`).
+- **From source**, for local development. Load the built file the same way.
 
 **Recommended Redis configuration:** Redis Search (Query Engine) enabled
 and query performance factor (QPF) set to **4×** where supported.
@@ -141,9 +146,13 @@ published only after the driver's own release gates pass. It builds and tests
 the extension with that driver tag on Linux amd64/arm64 and macOS arm64. Only if
 every platform passes does it move the pin to that tag, tag this repository and
 publish the archives. It skips a version that is already released and never
-moves the pin backwards or past a deliberately newer pin. Release builds stamp
-their version into the extension; other builds keep the `v0.1.0` placeholder.
-Publishing a GitHub release by hand builds and attaches the same artifacts, for
+moves the pin backwards or past a deliberately newer pin. The release commits
+its version (`EXTENSION_VERSION` and the extension's `Version()`) together with
+any pin move, and tags that commit. As a result, the tagged source, its archives
+and registry builds of it all report the release version; development builds
+report the latest release's version. (`v0.0.31` predates this: its tagged
+source still declares the old `v0.1.0` placeholder, which only its release
+archives override.) Publishing a GitHub release by hand builds and attaches the same artifacts, for
 example `vX.Y.Z-N` for an extension-only fix between driver releases. Each
 archive includes engine/platform, extension and driver revisions, and an
 adjacent SHA-256 checksum.
@@ -155,12 +164,15 @@ The upstream Query.Farm `adbc_scanner` integration remains in the driver repo.
 
 Upstream extraction and migration review: [redis-adbc-driver #489](https://github.com/redis/redis-adbc-driver/pull/489).
 
-## Community registry migration
+## Community registry
 
-The community registry currently pins the historical source repository, so its
-existing published version remains unchanged. [registry/description.yml](registry/description.yml)
-is a prepared replacement pointing to this repository at an exact source commit.
-It must be submitted to `duckdb/community-extensions` under
-`extensions/redis_adbc/description.yml` and accepted before registry builds follow
-the new repository. The migration session could not open that PR because the
-connected GitHub credentials cannot write to the existing registry fork.
+The `duckdb/community-extensions` entry `extensions/redis_adbc/description.yml`
+names this repository and the exact commit the registry builds for DuckDB 2.0
+(`repo.ref`). [registry/description.yml](registry/description.yml) mirrors the
+latest submitted entry. Each extension release needs a pull request there that
+sets `extension.version` and `repo.ref` to the values listed in the
+`Driver release` run summary. The registry's own CI and review then decide when
+the new build is published. The `v0.0.31` update is
+[duckdb/community-extensions#3815](https://github.com/duckdb/community-extensions/pull/3815);
+until it is merged and published, `INSTALL redis_adbc FROM community` serves the
+earlier build of `ca18955`, which embeds a pre-release driver revision.

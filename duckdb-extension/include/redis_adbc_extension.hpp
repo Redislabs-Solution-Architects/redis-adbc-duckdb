@@ -9,6 +9,6 @@ class RedisAdbcExtension : public Extension {
 public:
   void Load(ExtensionLoader &loader) override;
   std::string Name() override { return "redis_adbc"; }
-  std::string Version() const override { return "v0.1.0"; }
+  std::string Version() const override { return "v0.0.31"; }
 };
 } // namespace duckdb

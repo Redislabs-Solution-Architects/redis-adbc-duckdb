@@ -76,13 +76,7 @@ jobs:
           echo "Driver under test: $(git -C driver rev-parse HEAD) (${DRIVER_REF:-pinned $(git rev-parse HEAD:driver)})" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Stamp extension release version
         if: env.RELEASE_VERSION != 'dev'
-        run: |
-          [[ "$RELEASE_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] || { echo "invalid release version: $RELEASE_VERSION" >&2; exit 2; }
-          sed -i.orig -E "s/EXTENSION_VERSION v[^ )]+/EXTENSION_VERSION $RELEASE_VERSION/" extension_config.cmake
-          sed -i.orig -E "s/(Version\(\) const override \{ return \")v[^\"]+/\1$RELEASE_VERSION/" duckdb-extension/include/redis_adbc_extension.hpp
-          rm extension_config.cmake.orig duckdb-extension/include/redis_adbc_extension.hpp.orig
-          grep -q "EXTENSION_VERSION $RELEASE_VERSION$" extension_config.cmake
-          grep -q "return \"$RELEASE_VERSION\";" duckdb-extension/include/redis_adbc_extension.hpp
+        run: duckdb-extension/stamp_version.sh "$RELEASE_VERSION"
       - uses: ./.github/actions/duckdb-build-cache
         with:
           variant: native-v2

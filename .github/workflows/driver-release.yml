@@ -109,16 +109,23 @@ jobs:
             [ "$driver" = "$COMMIT" ] || { echo "$archive embeds driver $driver, expected $COMMIT" >&2; exit 1; }
             [ "$version" = "$TAG" ] || { echo "$archive is version $version, expected $TAG" >&2; exit 1; }
           done
-      - name: Pin the release driver
-        if: env.BUMP == 'true'
+      - name: Commit the release version and driver pin
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git update-index --cacheinfo "160000,$COMMIT,driver"
-          git commit -m "Pin driver $TAG" \
-            -m "Automated by the driver release workflow after the extension built and passed its tests with this driver on every platform."
-          # Rejected if main moved since the build; the next run rebuilds from the new main.
-          git push origin HEAD:main
+          # The same stamp the build applied, so the tagged source, its archives and
+          # community-registry builds of that commit all report this version.
+          duckdb-extension/stamp_version.sh "$TAG"
+          git add extension_config.cmake duckdb-extension/include/redis_adbc_extension.hpp
+          if [ "$BUMP" = true ]; then git update-index --cacheinfo "160000,$COMMIT,driver"; fi
+          if git diff --cached --quiet; then
+            echo "Source already declares $TAG and pins driver $TAG."
+          else
+            git commit -m "Release $TAG with driver $TAG" \
+              -m "Automated by the driver release workflow after the extension built and passed its tests with this driver and version on every platform."
+            # Rejected if main moved since the build; the next run rebuilds from the new main.
+            git push origin HEAD:main
+          fi
       - name: Publish the matching extension release
         env:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
