@@ -1,7 +1,9 @@
 # Project instructions
 
-The native DuckDB extension embeds the driver pinned by `driver/`. Read README.md
-before building. Keep exact DuckDB ABI and Go toolchain pins. Test live Redis
+The native DuckDB extension embeds the driver pinned by `driver/`. The Driver
+release workflow moves that pin to each completed driver release and publishes
+a matching extension version only after every platform passes; keep extension
+releases matching their embedded driver. Read README.md before building. Keep exact DuckDB ABI and Go toolchain pins. Test live Redis
 only on disposable Redis Software with active, verified 4x QPF via
 `make -C driver/go redis-up`; use the setup runner to verify policy before tests.
 Do not support or test Valkey, ElastiCache or Memorystore. Keep credentials,

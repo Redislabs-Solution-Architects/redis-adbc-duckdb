@@ -123,11 +123,10 @@ the extension's engine version is available.
 ## Driver source and releases
 
 The `driver` submodule pins the exact Redis ADBC source used for both the embedded
-archive and runtime fixtures; it currently points at driver release `v0.0.31`.
-Update that pin deliberately and run this repo's CI before releasing. Push,
-pull request and release builds always use the pin. The nightly scheduled run
-instead builds and tests the latest upstream driver `main`, so a driver change
-that breaks the extension shows up before the next pin update. Its `dev`
+archive and runtime fixtures, and follows the latest completed driver release.
+Push, pull request and release builds always use the pin. The nightly scheduled
+run instead builds and tests the latest upstream driver `main`, so a driver
+change that breaks the extension shows up before it is released. Its `dev`
 artifacts are not release artifacts; `DRIVER_REVISION` records the driver
 commit actually built. A manual run can test another driver branch or tag
 through the `driver_ref` input. The source
@@ -135,10 +134,23 @@ was extracted from `redis/redis-adbc-driver` at
 `cacae16c637bd5459a43f9e794e8c80f7fafa08f`; existing Apache-2.0 notices are retained.
 Initialize driver without recursively checking out its historical submodules.
 
-Publishing a GitHub release in this repository builds Linux amd64/arm64 and
-macOS arm64 artifacts and uploads them after all platform jobs succeed. Each
-archive includes engine/platform, extension and driver revisions, and an adjacent
-SHA-256 checksum. Driver releases in the upstream repository are independent.
+Each driver release gets a matching extension release with the same version:
+extension `v0.0.32` embeds driver `v0.0.32`. The daily `Driver release`
+workflow takes the latest `adbc-driver-redis` version on PyPI, which is
+published only after the driver's own release gates pass. It builds and tests
+the extension with that driver tag on Linux amd64/arm64 and macOS arm64. Only if
+every platform passes does it move the pin to that tag, tag this repository and
+publish the archives. It skips a version that is already released and never
+moves the pin backwards or past a deliberately newer pin. Release builds stamp
+their version into the extension; other builds keep the `v0.1.0` placeholder.
+Publishing a GitHub release by hand builds and attaches the same artifacts, for
+example `vX.Y.Z-N` for an extension-only fix between driver releases. Each
+archive includes engine/platform, extension and driver revisions, and an
+adjacent SHA-256 checksum.
+
+`INSTALL redis_adbc FROM community` is built separately by the DuckDB community
+registry from the commit its entry names. After each automated release, the
+workflow summary lists the `ref` and `version` for the registry pull request.
 The upstream Query.Farm `adbc_scanner` integration remains in the driver repo.
 
 Upstream extraction and migration review: [redis-adbc-driver #489](https://github.com/redis/redis-adbc-driver/pull/489).
