@@ -123,8 +123,14 @@ the extension's engine version is available.
 ## Driver source and releases
 
 The `driver` submodule pins the exact Redis ADBC source used for both the embedded
-archive and runtime fixtures. Update that pin deliberately and run this repo's
-CI before releasing. Builds never follow a floating driver branch. The source
+archive and runtime fixtures; it currently points at driver release `v0.0.31`.
+Update that pin deliberately and run this repo's CI before releasing. Push,
+pull request and release builds always use the pin. The nightly scheduled run
+instead builds and tests the latest upstream driver `main`, so a driver change
+that breaks the extension shows up before the next pin update. Its `dev`
+artifacts are not release artifacts; `DRIVER_REVISION` records the driver
+commit actually built. A manual run can test another driver branch or tag
+through the `driver_ref` input. The source
 was extracted from `redis/redis-adbc-driver` at
 `cacae16c637bd5459a43f9e794e8c80f7fafa08f`; existing Apache-2.0 notices are retained.
 Initialize driver without recursively checking out its historical submodules.
