@@ -1,0 +1,137 @@
+name: Driver release
+
+# The extension embeds the driver, so DuckDB users receive a driver release
+# only through a new extension build. For each completed driver release this
+# builds and tests the matching extension on every platform and, only if all
+# of them pass, pins that driver and publishes an extension release with the
+# same version. Extension-only fixes can still be released by hand (vX.Y.Z-N).
+on:
+  schedule:
+    - cron: '17 11 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: driver-release
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      commit: ${{ steps.release.outputs.commit }}
+      bump: ${{ steps.release.outputs.bump }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Find the latest completed driver release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DRIVER_REPO: redis/redis-adbc-driver
+        run: |
+          # PyPI publication is the last step of a driver release, so its latest
+          # version is the latest release that passed the driver's release gates.
+          version=$(curl -fsSL --retry 3 https://pypi.org/pypi/adbc-driver-redis/json |
+            python3 -c 'import json, sys; print(json.load(sys.stdin)["info"]["version"])')
+          [[ "$version" =~ ^([0-9]+\.[0-9]+\.[0-9]+)(\.post[0-9]+)?$ ]] || { echo "unexpected PyPI version: $version" >&2; exit 2; }
+          tag="v${BASH_REMATCH[1]}"
+          commit=$(gh api "repos/$DRIVER_REPO/commits/$tag" --jq .sha)
+          [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo "cannot resolve driver $tag" >&2; exit 1; }
+          if existing=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" --jq .html_url 2>&1); then
+            echo "Extension release $tag already exists: $existing" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          elif [[ "$existing" != *"HTTP 404"* ]]; then
+            echo "$existing" >&2
+            exit 1
+          fi
+          pinned=$(git rev-parse HEAD:driver)
+          bump=false
+          if [ "$pinned" != "$commit" ]; then
+            # Only move forward: a deliberately newer or diverged pin is left alone.
+            status=$(gh api "repos/$DRIVER_REPO/compare/$pinned...$commit" --jq .status)
+            if [ "$status" != ahead ]; then
+              echo "::warning::Driver $tag ($commit) is $status relative to the pin ($pinned); not releasing automatically."
+              exit 0
+            fi
+            bump=true
+          fi
+          { echo "tag=$tag"; echo "commit=$commit"; echo "bump=$bump"; } >> "$GITHUB_OUTPUT"
+          echo "Building extension $tag with driver $tag ($commit); move pin from $pinned: $bump" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  build:
+    needs: resolve
+    if: needs.resolve.outputs.tag != ''
+    # The called workflow's release-only publish job declares contents: write;
+    # its build jobs stay read-only through that workflow's top-level permissions.
+    permissions:
+      contents: write
+    uses: ./.github/workflows/duckdb-extension.yml
+    with:
+      driver_ref: ${{ needs.resolve.outputs.tag }}
+      release_version: ${{ needs.resolve.outputs.tag }}
+
+  publish:
+    needs: [resolve, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ needs.resolve.outputs.tag }}
+      COMMIT: ${{ needs.resolve.outputs.commit }}
+      BUMP: ${{ needs.resolve.outputs.bump }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The extension source that was built; main may have moved since.
+          ref: ${{ github.sha }}
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: duckdb-*
+          path: dist
+          merge-multiple: true
+      - name: Verify every platform archive embeds this driver release
+        run: |
+          shopt -s nullglob
+          archives=(dist/*.tar.gz)
+          [ "${#archives[@]}" -eq 3 ] || { echo "expected 3 platform archives, found ${#archives[@]}" >&2; exit 1; }
+          for archive in "${archives[@]}"; do
+            name=$(basename "$archive" .tar.gz)
+            (cd dist && sha256sum -c "$name.tar.gz.sha256")
+            driver=$(tar -xzOf "$archive" "$name/DRIVER_REVISION")
+            version=$(tar -xzOf "$archive" "$name/VERSION")
+            [ "$driver" = "$COMMIT" ] || { echo "$archive embeds driver $driver, expected $COMMIT" >&2; exit 1; }
+            [ "$version" = "$TAG" ] || { echo "$archive is version $version, expected $TAG" >&2; exit 1; }
+          done
+      - name: Pin the release driver
+        if: env.BUMP == 'true'
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git update-index --cacheinfo "160000,$COMMIT,driver"
+          git commit -m "Pin driver $TAG" \
+            -m "Automated by the driver release workflow after the extension built and passed its tests with this driver on every platform."
+          # Rejected if main moved since the build; the next run rebuilds from the new main.
+          git push origin HEAD:main
+      - name: Publish the matching extension release
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          target=$(git rev-parse HEAD)
+          notes="Standalone \`redis_adbc\` extension for DuckDB 2.0.0 embedding [Redis ADBC driver $TAG](https://github.com/redis/redis-adbc-driver/releases/tag/$TAG) (\`$COMMIT\`).
+
+          Built and tested on Linux amd64/arm64 and macOS arm64 by [this run]($RUN_URL). Archives are unsigned: load them with \`duckdb -unsigned\` and verify the adjacent SHA-256 files. \`INSTALL redis_adbc FROM community\` is updated separately through the DuckDB community registry."
+          gh release create "$TAG" dist/*.tar.gz dist/*.sha256 --target "$target" \
+            --title "$TAG: embeds Redis ADBC driver $TAG" --notes "$notes"
+          {
+            echo "### Community registry"
+            echo "Released $TAG at \`$target\`. To ship it through \`INSTALL redis_adbc FROM community\`,"
+            echo "open a pull request to duckdb/community-extensions that sets"
+            echo "\`extensions/redis_adbc/description.yml\` to \`extension.version: '${TAG#v}'\` and \`repo.ref: $target\`."
+          } >> "$GITHUB_STEP_SUMMARY"

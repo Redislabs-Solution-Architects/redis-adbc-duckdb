@@ -5,7 +5,8 @@ on:
     branches: [main]
   pull_request:
   # Nightly runs test the latest upstream driver main; pushes, pull requests
-  # and releases build the pinned driver/ submodule.
+  # and releases build the pinned driver/ submodule. driver-release.yml calls
+  # this workflow to build each new driver release on every platform.
   schedule:
     - cron: '47 9 * * *'
   release:
@@ -16,6 +17,16 @@ on:
         description: Upstream driver branch or tag to test instead of the pin (empty = pinned driver/)
         required: false
         default: ''
+        type: string
+  workflow_call:
+    inputs:
+      driver_ref:
+        description: Upstream driver tag to embed instead of the pin
+        required: true
+        type: string
+      release_version:
+        description: Extension version to stamp into the build and archives
+        required: true
         type: string
 
 permissions:
@@ -36,6 +47,8 @@ jobs:
       # The pinned submodule matches the community registry's 2.0 source.
       DUCKDB_TEST_VERSION: '2.0.0'
       DUCKDB_VCPKG_COMMIT: cd61e1e26a038e82d6550a3ebbe0fbbfe7da78e3
+      # Release builds carry their tag; every other build is a dev build.
+      RELEASE_VERSION: ${{ inputs.release_version || github.event.release.tag_name || 'dev' }}
     strategy:
       fail-fast: false
       matrix:
@@ -52,7 +65,8 @@ jobs:
           git submodule update --init --recursive --depth 1 duckdb extension-ci-tools
       - name: Select driver revision
         env:
-          DRIVER_REF: ${{ github.event_name == 'schedule' && 'main' || inputs.driver_ref }}
+          # An explicit input wins, including when another scheduled workflow calls this one.
+          DRIVER_REF: ${{ inputs.driver_ref || (github.event_name == 'schedule' && 'main') || '' }}
         run: |
           if [ -n "$DRIVER_REF" ]; then
             [[ "$DRIVER_REF" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || { echo "invalid driver_ref: $DRIVER_REF" >&2; exit 2; }
@@ -60,6 +74,15 @@ jobs:
             git -C driver checkout --detach FETCH_HEAD
           fi
           echo "Driver under test: $(git -C driver rev-parse HEAD) (${DRIVER_REF:-pinned $(git rev-parse HEAD:driver)})" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Stamp extension release version
+        if: env.RELEASE_VERSION != 'dev'
+        run: |
+          [[ "$RELEASE_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] || { echo "invalid release version: $RELEASE_VERSION" >&2; exit 2; }
+          sed -i.orig -E "s/EXTENSION_VERSION v[^ )]+/EXTENSION_VERSION $RELEASE_VERSION/" extension_config.cmake
+          sed -i.orig -E "s/(Version\(\) const override \{ return \")v[^\"]+/\1$RELEASE_VERSION/" duckdb-extension/include/redis_adbc_extension.hpp
+          rm extension_config.cmake.orig duckdb-extension/include/redis_adbc_extension.hpp.orig
+          grep -q "EXTENSION_VERSION $RELEASE_VERSION$" extension_config.cmake
+          grep -q "return \"$RELEASE_VERSION\";" duckdb-extension/include/redis_adbc_extension.hpp
       - uses: ./.github/actions/duckdb-build-cache
         with:
           variant: native-v2
@@ -114,8 +137,6 @@ jobs:
         run: |
           if command -v ccache >/dev/null; then ccache --show-stats; fi
       - name: Package versioned standalone extension
-        env:
-          RELEASE_VERSION: ${{ github.event.release.tag_name || 'dev' }}
         run: |
           target=linux-amd64
           if [ "$RUNNER_ARCH" = ARM64 ]; then target=linux-arm64; fi
